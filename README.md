@@ -15,4 +15,4 @@ RuBERT — русскоязычная версия BERT.
 
 - Russian Hate Speech (14k) — бинарная классификация
 - Toxic Russian Comments (100k+) — 4 класса
-- Russian Inappropriate Messages (150k) — бинарная + темы
+- Russian Inappropriate Messages (150k) — бинарная + темы 
