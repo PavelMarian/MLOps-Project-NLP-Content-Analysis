@@ -1,0 +1,25 @@
+stages:
+  prepare:
+    cmd: python src/data/make_dataset.py
+    deps:
+      - data/raw/
+      - src/data/make_dataset.py
+    params:
+      - prepare.seed
+      - prepare.test_split
+    outs:
+      - data/processed/
+    metrics:
+      - metrics/prepare.json:
+          cache: false   # в Git коммитим и сам файл
+  train:
+    cmd: python src/models/train_model.py
+    deps:
+      - data/processed/
+      - src/models/train_model.py
+    params:
+      - train.learning_rate
+      - train.batch_size
+      - train.epochs
+    outs:
+      - models/finetuned/
