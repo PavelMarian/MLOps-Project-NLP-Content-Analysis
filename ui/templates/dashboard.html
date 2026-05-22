@@ -23,6 +23,18 @@
     </div>
 </div>
 
+<!-- Графики: 2 колонки -->
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
+    <div class="card">
+        <h2>📈 Динамика метрик качества</h2>
+        <canvas id="qualityChart" width="400" height="200"></canvas>
+    </div>
+    <div class="card">
+        <h2>⚠️ Динамика дрейфа</h2>
+        <canvas id="driftChart" width="400" height="200"></canvas>
+    </div>
+</div>
+
 <div class="card">
     <h2>⚠️ Обнаружение дрейфа</h2>
     <div class="metrics-grid" id="drift-metrics">
@@ -39,7 +51,10 @@
     <button class="btn btn-secondary" style="margin-top:1rem" onclick="refreshData()">🔄 Обновить</button>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
+let qualityChart, driftChart;
+
 async function fetchMetrics() {
     try { const r = await fetch('/api/metrics'); return await r.json(); }
     catch(e) { return null; }
@@ -47,6 +62,10 @@ async function fetchMetrics() {
 async function fetchPredictions() {
     try { const r = await fetch('/api/predictions/latest'); return await r.json(); }
     catch(e) { return []; }
+}
+async function fetchHistory() {
+    try { const r = await fetch('/api/history'); return await r.json(); }
+    catch(e) { return { quality: [], drift: [] }; }
 }
 async function retrainModel() {
     const btn = document.getElementById('retrain-btn');
@@ -70,23 +89,67 @@ function updateMetrics(m) {
     document.getElementById('data-drift').textContent = formatPercent(m.drift.data_drift);
     document.getElementById('concept-drift').textContent = formatPercent(m.drift.concept_drift);
     document.getElementById('target-drift').textContent = formatPercent(m.drift.target_drift);
-    document.getElementById('data-drift-status').innerHTML = m.drift.data_drift > 0.1 ? '<span style="color:#dc3545;">⚠️ Дрейф</span>' : '<span style="color:#28a745;">✅ Норма</span>';
-    document.getElementById('concept-drift-status').innerHTML = m.drift.concept_drift > 0.1 ? '<span style="color:#dc3545;">⚠️ Дрейф</span>' : '<span style="color:#28a745;">✅ Норма</span>';
-    document.getElementById('target-drift-status').innerHTML = m.drift.target_drift > 0.1 ? '<span style="color:#dc3545;">⚠️ Дрейф</span>' : '<span style="color:#28a745;">✅ Норма</span>';
+    const driftOk = (v) => v <= 0.1;
+    document.getElementById('data-drift-status').innerHTML = driftOk(m.drift.data_drift) ? '<span style="color:#28a745;">✅ Норма</span>' : '<span style="color:#dc3545;">⚠️ Дрейф</span>';
+    document.getElementById('concept-drift-status').innerHTML = driftOk(m.drift.concept_drift) ? '<span style="color:#28a745;">✅ Норма</span>' : '<span style="color:#dc3545;">⚠️ Дрейф</span>';
+    document.getElementById('target-drift-status').innerHTML = driftOk(m.drift.target_drift) ? '<span style="color:#28a745;">✅ Норма</span>' : '<span style="color:#dc3545;">⚠️ Дрейф</span>';
     if(m.drift.data_drift > 0.15) showNotification('Обнаружен Data Drift! Рекомендуется переобучение.', 'warning');
 }
 function updatePredictions(p) {
     const tbody = document.getElementById('predictions-table');
     if(!p || p.length===0) { tbody.innerHTML='<tr><td colspan="5">Нет данных</td></tr>'; return; }
-    tbody.innerHTML = p.map(p => `<tr><td>${formatDate(p.timestamp)}</td><td>${p.text.length>50?p.text.substring(0,50)+'...':p.text}</td><td><span class="badge ${getBadgeClass(p.is_toxic,p.confidence)}">${getBadgeText(p.is_toxic,p.confidence)}</span></td><td>${(p.confidence*100).toFixed(1)}%</td><td>${p.confidence<0.6?'⚠️ Аномалия':'✅ Норма'}</td></tr>`).join('');
+    tbody.innerHTML = p.slice(0,10).map(p => `<tr>
+        <td>${formatDate(p.timestamp)}</td>
+        <td>${p.text.length>50?p.text.substring(0,50)+'...':p.text}</td>
+        <td><span class="badge ${getBadgeClass(p.is_toxic,p.confidence)}">${getBadgeText(p.is_toxic,p.confidence)}</span></td>
+        <td>${(p.confidence*100).toFixed(1)}%</td>
+        <td>${p.confidence<0.6?'⚠️ Аномалия':'✅ Норма'}</td>
+    </tr>`).join('');
+}
+function initCharts() {
+    const ctx1 = document.getElementById('qualityChart').getContext('2d');
+    const ctx2 = document.getElementById('driftChart').getContext('2d');
+    qualityChart = new Chart(ctx1, {
+        type: 'line', data: { labels: [], datasets: [
+            { label: 'Accuracy', borderColor: '#e94560', tension: 0.1, fill: false },
+            { label: 'Precision', borderColor: '#3498db', tension: 0.1, fill: false },
+            { label: 'Recall', borderColor: '#2ecc71', tension: 0.1, fill: false },
+            { label: 'F1', borderColor: '#f39c12', tension: 0.1, fill: false }
+        ]}, options: { responsive: true, maintainAspectRatio: true }
+    });
+    driftChart = new Chart(ctx2, {
+        type: 'line', data: { labels: [], datasets: [
+            { label: 'Data Drift', borderColor: '#e94560', tension: 0.1, fill: false },
+            { label: 'Concept Drift', borderColor: '#3498db', tension: 0.1, fill: false },
+            { label: 'Target Drift', borderColor: '#2ecc71', tension: 0.1, fill: false }
+        ]}, options: { responsive: true, maintainAspectRatio: true }
+    });
+}
+function updateCharts(history) {
+    if(!history || !qualityChart || !driftChart) return;
+    qualityChart.data.labels = history.quality.map(h => h.date);
+    qualityChart.data.datasets[0].data = history.quality.map(h => h.accuracy);
+    qualityChart.data.datasets[1].data = history.quality.map(h => h.precision);
+    qualityChart.data.datasets[2].data = history.quality.map(h => h.recall);
+    qualityChart.data.datasets[3].data = history.quality.map(h => h.f1);
+    qualityChart.update();
+    driftChart.data.labels = history.drift.map(h => h.date);
+    driftChart.data.datasets[0].data = history.drift.map(h => h.data_drift);
+    driftChart.data.datasets[1].data = history.drift.map(h => h.concept_drift);
+    driftChart.data.datasets[2].data = history.drift.map(h => h.target_drift);
+    driftChart.update();
 }
 async function refreshData() {
     const metrics = await fetchMetrics();
     updateMetrics(metrics);
     const predictions = await fetchPredictions();
     updatePredictions(predictions);
+    const history = await fetchHistory();
+    updateCharts(history);
 }
 refreshData();
 setInterval(refreshData, 30000);
+initCharts();
+setTimeout(() => refreshData(), 100);
 </script>
 {% endblock %}

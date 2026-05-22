@@ -85,3 +85,27 @@ async def retrain():
 @app.get("/api/experiments")
 async def get_experiments():
     return {"experiments": experiments_store, "latest_version": experiments_store[-1]["version"]}
+
+@app.get("/api/history")
+async def get_history():
+    """История метрик для графиков (заглушка)"""
+    import random
+    days = list(range(7, 0, -1))
+    quality_history = []
+    drift_history = []
+    base_acc = 0.88
+    for i, day in enumerate(days):
+        quality_history.append({
+            "date": f"День {day}",
+            "accuracy": base_acc + random.uniform(-0.02, 0.02),
+            "precision": 0.87 + random.uniform(-0.02, 0.02),
+            "recall": 0.89 + random.uniform(-0.02, 0.02),
+            "f1": 0.88 + random.uniform(-0.02, 0.02)
+        })
+        drift_history.append({
+            "date": f"День {day}",
+            "data_drift": max(0, 0.03 + random.uniform(-0.02, 0.04)),
+            "concept_drift": max(0, 0.02 + random.uniform(-0.01, 0.03)),
+            "target_drift": max(0, 0.01 + random.uniform(-0.01, 0.02))
+        })
+    return {"quality": quality_history, "drift": drift_history}
