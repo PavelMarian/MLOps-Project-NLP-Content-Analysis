@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block title %}Инференс — MLOps Content Moderation{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>🔮 Проверка текста на токсичность</h2>
+    <form id="inference-form">
+        <div class="form-group"><label for="text">Введите текст для анализа:</label><textarea id="text" name="text" rows="4" placeholder="Введите сообщение для проверки..."></textarea></div>
+        <div class="form-group"><label for="model_version">Версия модели:</label><select id="model_version"><option value="latest">Последняя</option><option value="v1.0">v1.0</option><option value="v2.0">v2.0</option></select></div>
+        <button type="submit" class="btn btn-primary">🔍 Проверить</button>
+    </form>
+    <div id="result" style="margin-top:1rem; display:none;"></div>
+</div>
+<div class="card"><h2>📊 Детальный анализ</h2><div id="stats"><p>Выполните проверку, чтобы увидеть детальный анализ...</p></div></div>
+<script>
+document.getElementById('inference-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const text = document.getElementById('text').value;
+    const modelVersion = document.getElementById('model_version').value;
+    if(!text.trim()) { showNotification('Введите текст', 'warning'); return; }
+    const resultDiv = document.getElementById('result');
+    resultDiv.style.display = 'block';
+    resultDiv.innerHTML = '<div style="text-align:center;">⏳ Анализ...</div>';
+    try {
+        const resp = await fetch('/api/predict', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, model_version: modelVersion }) });
+        const data = await resp.json();
+        resultDiv.innerHTML = `<div class="result-box ${data.is_toxic ? 'result-toxic' : 'result-safe'}"><strong>Результат:</strong> ${data.is_toxic ? '🚫 Текст содержит токсичный контент!' : '✅ Текст безопасен'}<br><strong>Уверенность:</strong> ${(data.confidence*100).toFixed(1)}%<br><strong>Версия:</strong> ${data.model_version}<br><strong>Время:</strong> ${data.processing_time_ms} мс</div>`;
+        document.getElementById('stats').innerHTML = `<div class="metrics-grid"><div class="metric-card"><div class="metric-value">${data.features?.toxicity_score?.toFixed(2)||'—'}</div><div class="metric-label">Токсичность</div></div><div class="metric-card"><div class="metric-value">${data.features?.hate_score?.toFixed(2)||'—'}</div><div class="metric-label">Ненависть</div></div><div class="metric-card"><div class="metric-value">${data.features?.threat_score?.toFixed(2)||'—'}</div><div class="metric-label">Угрозы</div></div><div class="metric-card"><div class="metric-value">${data.features?.profanity_score?.toFixed(2)||'—'}</div><div class="metric-label">Нецензурная лексика</div></div></div>`;
+        if(typeof refreshData === 'function') setTimeout(() => refreshData(), 1000);
+    } catch(e) { resultDiv.innerHTML = '<div class="result-box" style="background:#f8d7da;">❌ Ошибка при анализе</div>'; showNotification('Ошибка API', 'error'); }
+});
+</script>
+{% endblock %}
