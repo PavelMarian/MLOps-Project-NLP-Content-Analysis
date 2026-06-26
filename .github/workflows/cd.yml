@@ -1,0 +1,31 @@
+name: CD
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'latest'
+
+      - name: Set up Kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG }}" | base64 --decode > $HOME/.kube/config
+
+      - name: Deploy to Kubernetes
+        run: |
+          kubectl set image deployment/toxicity-app app=ghcr.io/${{ github.repository }}:${{ github.sha }} -n toxicity
+          kubectl rollout status deployment/toxicity-app -n toxicity
+
+      - name: Apply all manifests
+        run: |
+          kubectl apply -f k8s/ -n toxicity
