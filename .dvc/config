@@ -1,0 +1,4 @@
+[core]
+    remote = local
+['remote "local"']
+    url = /mnt/c/Users/user/dvc_remote
