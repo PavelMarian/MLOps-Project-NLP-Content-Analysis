@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    container_name: toxicity-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./toxicity.db:/app/toxicity.db
+      - ./mlruns:/app/mlruns
+      - ./data:/app/data
+    environment:
+      - MLFLOW_TRACKING_URI=mlruns
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: toxicity-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: toxicity-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana-dashboard.yml:/etc/grafana/provisioning/dashboards/dashboard.yml
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=admin
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    container_name: toxicity-mlflow
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlruns:/mlruns
+    command: mlflow ui --backend-store-uri /mlruns --host 0.0.0.0 --port 5000
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  monitoring:
+    driver: bridge
