@@ -1,4 +1,4 @@
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import FastAPI, BackgroundTasks, HTTPException, BackgroundTasks
 from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -13,21 +13,25 @@ from db import Session, Prediction, ModelVersion, DriftLog
 sys.path.append(str(Path(__file__).parent.parent))
 
 from models.model import create_model_with_mlflow
+from drift_router import set_model
 # from drift_monitoring.drift_detector import DriftDetector, DriftAnalyzer, metrics
 
+from drift_monitoring.drift_detector import DriftDetector
 from drift_monitoring.prometheus_client import get_metrics
 from drift_router import router as drift_router
+from load_new_data import router as new_data_loader
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Toxicity Detection MLOps API",
-    description="API для определения токсичности текстов с MLOps функционалом",
+    description="API для определения токсичности текстов",
     version="1.0.0"
 )
 
 app.include_router(drift_router)
+app.include_router(new_data_loader)
 
 model = None
 drift_detector = None
@@ -109,6 +113,7 @@ def init_model() -> bool:
             use_mlflow=USE_MLFLOW,
             experiment_name=EXPERIMENT_NAME
         )
+        set_model(model)
         logger.info("Model loaded successfully")
         return True
     except Exception as e:
@@ -158,7 +163,7 @@ async def shutdown():
 
 
 @app.post("/predict", response_model=PredictResponse)
-async def predict(request: PredictRequest):
+async def predict(request: PredictRequest, background_tasks: BackgroundTasks):
     global model
 
     if model is None:
@@ -201,6 +206,8 @@ async def predict(request: PredictRequest):
             session.close()
 
         latency = (time.time() - start_time) * 1000
+
+        background_tasks.add_task(check_drift)
 
         return PredictResponse(
             predictions=saved_results,
