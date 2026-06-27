@@ -12,7 +12,11 @@ from db import Session, Prediction, ModelVersion, DriftLog
 sys.path.append(str(Path(__file__).parent.parent))
 
 from models.model import create_model_with_mlflow
-from drift_monitoring.drift_detector import DriftDetector
+from drift_monitoring.drift_detector import DriftDetector, DriftAnalyzer, metrics
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.interval import IntervalTrigger
+import atexit
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
