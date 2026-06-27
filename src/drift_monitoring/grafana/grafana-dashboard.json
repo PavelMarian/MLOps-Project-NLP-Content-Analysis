@@ -1,0 +1,269 @@
+{
+  "title": "Toxicity Model Monitoring",
+  "uid": "toxicity-production",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "tags": ["mlops", "drift", "toxicity"],
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "type": "stat",
+      "title": "Model Status",
+      "targets": [
+        { "expr": "toxicity_model_info", "legendFormat": "active" }
+      ],
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "type": "stat",
+      "title": "Uptime (days)",
+      "targets": [
+        { "expr": "(time() - process_start_time_seconds) / 86400", "legendFormat": "days" }
+      ],
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "decimals": 2 } }
+    },
+    {
+      "id": 3,
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "type": "stat",
+      "title": "Prediction Rate (1 min)",
+      "targets": [
+        { "expr": "sum(rate(toxicity_predictions_total[1m]))", "legendFormat": "req/s" }
+      ],
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }
+    },
+    {
+      "id": 4,
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "type": "stat",
+      "title": "P95 Latency (ms)",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(toxicity_prediction_latency_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "P95"
+        }
+      ],
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "decimals": 0 } }
+    },
+    {
+      "id": 5,
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "type": "stat",
+      "title": "Error Rate (5xx)",
+      "targets": [
+        { "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) or vector(0)", "legendFormat": "errors/s" }
+      ],
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.01 },
+              { "color": "red", "value": 0.05 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 4 },
+      "type": "timeseries",
+      "title": "Data Drift Score",
+      "targets": [
+        { "expr": "toxicity_drift_score{drift_type=\"data\"}", "legendFormat": "Data" },
+        { "expr": "toxicity_drift_score{drift_type=\"target\"}", "legendFormat": "Target" }
+      ],
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }
+    },
+    {
+      "id": 7,
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 4 },
+      "type": "stat",
+      "title": "Data Drift Flag",
+      "targets": [
+        { "expr": "toxicity_drift_detected{drift_type=\"data\"}", "legendFormat": "Data" }
+      ],
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null, "text": "No drift" },
+              { "color": "red", "value": 1, "text": "DRIFT!" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 4 },
+      "type": "stat",
+      "title": "Target Drift Flag",
+      "targets": [
+        { "expr": "toxicity_drift_detected{drift_type=\"target\"}", "legendFormat": "Target" }
+      ],
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null, "text": "No drift" },
+              { "color": "red", "value": 1, "text": "DRIFT!" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 9,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "type": "timeseries",
+      "title": "Data Drift – Details",
+      "targets": [
+        { "expr": "toxicity_data_drift_ks_stat", "legendFormat": "KS stat" },
+        { "expr": "toxicity_data_drift_ks_pvalue", "legendFormat": "p-value" },
+        { "expr": "toxicity_data_drift_vocab_jaccard", "legendFormat": "Jaccard" },
+        { "expr": "toxicity_data_drift_vocab_score", "legendFormat": "Vocab score" }
+      ],
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }
+    },
+    {
+      "id": 10,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "type": "timeseries",
+      "title": "Target Drift – Rates & Change",
+      "targets": [
+        { "expr": "toxicity_target_drift_reference_rate", "legendFormat": "Reference rate" },
+        { "expr": "toxicity_target_drift_current_rate", "legendFormat": "Current rate" },
+        { "expr": "toxicity_target_drift_relative_change", "legendFormat": "Relative change" }
+      ],
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }
+    },
+    {
+      "id": 11,
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+      "type": "timeseries",
+      "title": "Toxic Rate & F1 Score",
+      "targets": [
+        { "expr": "toxicity_toxic_rate", "legendFormat": "Toxic rate" },
+        { "expr": "toxicity_model_f1_score", "legendFormat": "F1" }
+      ],
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }
+    },
+    {
+      "id": 12,
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+      "type": "timeseries",
+      "title": "Concept Drift (if available)",
+      "targets": [
+        { "expr": "toxicity_concept_drift_f1_reference or vector(0)", "legendFormat": "F1 ref" },
+        { "expr": "toxicity_concept_drift_f1_current or vector(0)", "legendFormat": "F1 curr" },
+        { "expr": "toxicity_concept_drift_relative_drop or vector(0)", "legendFormat": "Drop" }
+      ],
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }
+    },
+    {
+      "id": 13,
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+      "type": "stat",
+      "title": "Concept Drift Flag",
+      "targets": [
+        { "expr": "toxicity_drift_detected{drift_type=\"concept\"} or vector(0)", "legendFormat": "Concept" }
+      ],
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null, "text": "No drift" },
+              { "color": "red", "value": 1, "text": "DRIFT!" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 14,
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 24 },
+      "type": "timeseries",
+      "title": "System – CPU & Memory",
+      "targets": [
+        { "expr": "rate(process_cpu_seconds_total[1m]) * 100", "legendFormat": "CPU %" },
+        { "expr": "process_resident_memory_bytes / 1024 / 1024", "legendFormat": "Memory MB" }
+      ],
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }
+    },
+    {
+      "id": 15,
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 24 },
+      "type": "timeseries",
+      "title": "HTTP Request Rate (5 min)",
+      "targets": [
+        { "expr": "sum(rate(http_requests_total[5m])) or vector(0)", "legendFormat": "Total req/s" },
+        { "expr": "sum(rate(http_requests_total{status=~\"2..\"}[5m])) or vector(0)", "legendFormat": "2xx" },
+        { "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) or vector(0)", "legendFormat": "5xx" }
+      ],
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }
+    },
+    {
+      "id": 16,
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 24 },
+      "type": "timeseries",
+      "title": "Feedback & Prediction Count",
+      "targets": [
+        { "expr": "toxicity_prediction_count", "legendFormat": "Total predictions" },
+        { "expr": "toxicity_feedback_count", "legendFormat": "Feedback samples" }
+      ],
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {
+          "selected": true,
+          "text": "Prometheus",
+          "value": "Prometheus"
+        },
+        "hide": 0
+      }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s"
+}

@@ -231,12 +231,12 @@ class DriftDetector:
             active_run = mlflow.active_run()
             if active_run is None:
                 mlflow.start_run(run_name="drift_check", nested=True)
-            else:
-                pass
+
+            metrics = {}
 
             if report.data_drift:
-                mlflow.log_params({
-                    "data_drift_detected": report.data_drift.detected,
+                metrics.update({
+                    "data_drift_detected": float(report.data_drift.detected),
                     "data_drift_score": report.data_drift.score,
                     "length_ks_stat": report.data_drift.length_ks_stat,
                     "length_ks_pvalue": report.data_drift.length_ks_pvalue,
@@ -245,8 +245,8 @@ class DriftDetector:
                 })
 
             if report.target_drift:
-                mlflow.log_params({
-                    "target_drift_detected": report.target_drift.detected,
+                metrics.update({
+                    "target_drift_detected": float(report.target_drift.detected),
                     "target_drift_score": report.target_drift.score,
                     "reference_positive_rate": report.target_drift.reference_positive_rate,
                     "current_positive_rate": report.target_drift.current_positive_rate,
@@ -254,15 +254,18 @@ class DriftDetector:
                 })
 
             if report.concept_drift:
-                mlflow.log_params({
-                    "concept_drift_detected": report.concept_drift.detected,
+                metrics.update({
+                    "concept_drift_detected": float(report.concept_drift.detected),
                     "concept_drift_score": report.concept_drift.score,
                     "reference_f1": report.concept_drift.reference_f1,
                     "current_f1": report.concept_drift.current_f1,
                     "relative_drop": report.concept_drift.relative_drop,
                 })
 
-            mlflow.log_metric("drift_detected_any", 1 if report.has_drift() else 0)
+            metrics["drift_detected_any"] = 1.0 if report.has_drift() else 0.0
+
+            if metrics:
+                mlflow.log_metrics(metrics)
 
         except Exception as e:
             print(f"Error logging to MLflow: {e}")
