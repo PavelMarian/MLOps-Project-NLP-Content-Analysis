@@ -2,6 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from typing import List, Optional
 from datetime import datetime, timedelta
 import pandas as pd
+import json
 from sqlalchemy import func
 
 import sys
@@ -79,6 +80,19 @@ async def check_drift(background_tasks: BackgroundTasks):
         session.commit()
 
         metrics.update_drift_metrics(report.to_dict())
+
+        try:
+            base_dir = Path(__file__).parent.parent.parent
+            reports_dir = base_dir / "reports"
+            reports_dir.mkdir(exist_ok=True)
+            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"drift_report_{timestamp_str}.json"
+            filepath = reports_dir / filename
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(report.to_dict(), f, indent=2, ensure_ascii=False, default=str)
+            print(f"Drift report saved to {filepath}")
+        except Exception as e:
+            print(f"Failed to save drift report: {e}")
 
         return {
             "status": "ok",
