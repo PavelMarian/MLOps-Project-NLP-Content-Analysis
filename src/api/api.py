@@ -1,4 +1,5 @@
 from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
@@ -12,11 +13,10 @@ from db import Session, Prediction, ModelVersion, DriftLog
 sys.path.append(str(Path(__file__).parent.parent))
 
 from models.model import create_model_with_mlflow
-from drift_monitoring.drift_detector import DriftDetector, DriftAnalyzer, metrics
+# from drift_monitoring.drift_detector import DriftDetector, DriftAnalyzer, metrics
 
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.interval import IntervalTrigger
-import atexit
+from drift_monitoring.prometheus_client import get_metrics
+from drift_router import router as drift_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -26,6 +26,8 @@ app = FastAPI(
     description="API для определения токсичности текстов с MLOps функционалом",
     version="1.0.0"
 )
+
+app.include_router(drift_router)
 
 model = None
 drift_detector = None
@@ -241,25 +243,9 @@ async def add_feedback(feedback: FeedbackRequest, background_tasks: BackgroundTa
         session.close()
 
 
-@app.get("/drift", response_model=DriftResponse)
-async def get_drift():
-    session = Session()
-    try:
-        last_drift = session.query(DriftLog).order_by(DriftLog.timestamp.desc()).first()
-
-        if last_drift:
-            return DriftResponse(
-                drift_detected=last_drift.drift_detected,
-                drift_score=last_drift.drift_score,
-                last_check=last_drift.timestamp.isoformat()
-            )
-        return DriftResponse(
-            drift_detected=False,
-            drift_score=0.0,
-            last_check=None
-        )
-    finally:
-        session.close()
+@app.get("/metrics")
+async def metrics_endpoint():
+    return Response(content=get_metrics(), media_type="text/plain")
 
 
 @app.post("/retrain", response_model=RetrainResponse)
