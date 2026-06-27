@@ -78,6 +78,12 @@ class DriftLog(Base):
             "details": self.details
         }
 
+class ReferenceData(Base):
+    __tablename__ = "reference_data"
+    id = Column(Integer, primary_key=True, index=True)
+    text = Column(Text)
+    label = Column(Integer)
+    timestamp = Column(DateTime, default=datetime.now)
 
 engine = create_engine(
     "sqlite:///toxicity.db",
