@@ -13,7 +13,6 @@ from mlflow.models import infer_signature
 import mlflow.transformers
 import numpy as np
 
-
 class ToxicityModel:
     def __init__(self,
                  model_path="s-nlp/russian_toxicity_classifier",
@@ -428,8 +427,8 @@ def create_model_with_mlflow(use_mlflow=True, experiment_name="toxicity_model"):
     )
 
 
-USE_MLFLOW = True
-model = create_model_with_mlflow(use_mlflow=USE_MLFLOW)
+# USE_MLFLOW = True
+# model = create_model_with_mlflow(use_mlflow=USE_MLFLOW)
 
 if __name__ == "__main__":
     test_texts = [
