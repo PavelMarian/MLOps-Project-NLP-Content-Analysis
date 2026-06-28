@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 def load_reference_dataset(
     csv_path: str,
     text_column: str = "text",
-    label_column: str = "label",
+    label_column: int = "label",
     batch_size: int = 1000,
     clear_existing: bool = False,
 ):

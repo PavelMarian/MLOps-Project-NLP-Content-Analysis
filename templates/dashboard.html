@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block title %}Дашборд — MLOps Content Moderation{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>📊 Системные метрики</h2>
+    <div class="metrics-grid" id="system-metrics">
+        <div class="metric-card"><div class="metric-value" id="total-requests">-</div><div class="metric-label">Всего запросов</div></div>
+        <div class="metric-card"><div class="metric-value" id="avg-latency">-</div><div class="metric-label">Средняя задержка (мс)</div></div>
+        <div class="metric-card"><div class="metric-value" id="uptime">-</div><div class="metric-label">Время работы (ч)</div></div>
+        <div class="metric-card"><div class="metric-value" id="rps">-</div><div class="metric-label">Запросов/сек</div></div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>🎯 Метрики качества модели</h2>
+    <div class="metrics-grid" id="quality-metrics">
+        <div class="metric-card"><div class="metric-value" id="accuracy">-</div><div class="metric-label">Accuracy</div></div>
+        <div class="metric-card"><div class="metric-value" id="precision">-</div><div class="metric-label">Precision</div></div>
+        <div class="metric-card"><div class="metric-value" id="recall">-</div><div class="metric-label">Recall</div></div>
+        <div class="metric-card"><div class="metric-value" id="f1">-</div><div class="metric-label">F1-Score</div></div>
+    </div>
+</div>
+
+<!-- Графики: 2 колонки -->
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
+    <div class="card">
+        <h2>📈 Динамика метрик качества</h2>
+        <canvas id="qualityChart" width="400" height="200"></canvas>
+    </div>
+    <div class="card">
+        <h2>⚠️ Динамика дрейфа</h2>
+        <canvas id="driftChart" width="400" height="200"></canvas>
+    </div>
+</div>
+
+<div class="card">
+    <h2>⚠️ Обнаружение дрейфа</h2>
+    <div class="metrics-grid" id="drift-metrics">
+        <div class="metric-card"><div class="metric-value" id="data-drift">-</div><div class="metric-label">Data Drift</div><div class="metric-trend" id="data-drift-status"></div></div>
+        <div class="metric-card"><div class="metric-value" id="concept-drift">-</div><div class="metric-label">Concept Drift</div><div class="metric-trend" id="concept-drift-status"></div></div>
+        <div class="metric-card"><div class="metric-value" id="target-drift">-</div><div class="metric-label">Target Drift</div><div class="metric-trend" id="target-drift-status"></div></div>
+    </div>
+    <button class="btn btn-primary" onclick="retrainModel()" id="retrain-btn">🔄 Запустить переобучение</button>
+</div>
+
+<div class="card">
+    <h2>🕒 Последние предсказания</h2>
+    <table><thead><tr><th>Время</th><th>Текст</th><th>Результат</th><th>Уверенность</th><th>Аномалия</th></tr></thead><tbody id="predictions-table"><tr><td colspan="5">Загрузка...</td></tr></tbody></table>
+    <button class="btn btn-secondary" style="margin-top:1rem" onclick="refreshData()">🔄 Обновить</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+let qualityChart, driftChart;
+
+async function fetchMetrics() {
+    try { const r = await fetch('/api/metrics'); return await r.json(); }
+    catch(e) { return null; }
+}
+async function fetchPredictions() {
+    try { const r = await fetch('/api/predictions/latest'); return await r.json(); }
+    catch(e) { return []; }
+}
+async function fetchHistory() {
+    try { const r = await fetch('/api/history'); return await r.json(); }
+    catch(e) { return { quality: [], drift: [] }; }
+}
+async function retrainModel() {
+    const btn = document.getElementById('retrain-btn');
+    const original = btn.textContent;
+    btn.textContent = '🔄 Запуск...'; btn.disabled = true;
+    try { await fetch('/api/retrain', { method: 'POST' });
+    showNotification('Переобучение запущено', 'info'); }
+    catch(e) { showNotification('Ошибка запуска', 'error'); }
+    finally { btn.textContent = original; btn.disabled = false; }
+}
+function updateMetrics(m) {
+    if(!m) return;
+    document.getElementById('total-requests').textContent = m.system.total_processed?.toLocaleString() || '0';
+    document.getElementById('avg-latency').textContent = m.system.avg_latency_ms || '0';
+    document.getElementById('uptime').textContent = m.system.uptime_hours || '0';
+    document.getElementById('rps').textContent = m.system.rps || '0';
+    document.getElementById('accuracy').textContent = formatPercent(m.quality.accuracy);
+    document.getElementById('precision').textContent = formatPercent(m.quality.precision);
+    document.getElementById('recall').textContent = formatPercent(m.quality.recall);
+    document.getElementById('f1').textContent = formatPercent(m.quality.f1);
+    document.getElementById('data-drift').textContent = formatPercent(m.drift.data_drift);
+    document.getElementById('concept-drift').textContent = formatPercent(m.drift.concept_drift);
+    document.getElementById('target-drift').textContent = formatPercent(m.drift.target_drift);
+    const driftOk = (v) => v <= 0.1;
+    document.getElementById('data-drift-status').innerHTML = driftOk(m.drift.data_drift) ? '<span style="color:#28a745;">✅ Норма</span>' : '<span style="color:#dc3545;">⚠️ Дрейф</span>';
+    document.getElementById('concept-drift-status').innerHTML = driftOk(m.drift.concept_drift) ? '<span style="color:#28a745;">✅ Норма</span>' : '<span style="color:#dc3545;">⚠️ Дрейф</span>';
+    document.getElementById('target-drift-status').innerHTML = driftOk(m.drift.target_drift) ? '<span style="color:#28a745;">✅ Норма</span>' : '<span style="color:#dc3545;">⚠️ Дрейф</span>';
+    if(m.drift.data_drift > 0.15) showNotification('Обнаружен Data Drift! Рекомендуется переобучение.', 'warning');
+}
+function updatePredictions(p) {
+    const tbody = document.getElementById('predictions-table');
+    if(!p || p.length===0) { tbody.innerHTML='<tr><td colspan="5">Нет данных</td></tr>'; return; }
+    tbody.innerHTML = p.slice(0,10).map(p => `<tr>
+        <td>${formatDate(p.timestamp)}</td>
+        <td>${p.text.length>50?p.text.substring(0,50)+'...':p.text}</td>
+        <td><span class="badge ${getBadgeClass(p.is_toxic,p.confidence)}">${getBadgeText(p.is_toxic,p.confidence)}</span></td>
+        <td>${(p.confidence*100).toFixed(1)}%</td>
+        <td>${p.confidence<0.6?'⚠️ Аномалия':'✅ Норма'}</td>
+    </tr>`).join('');
+}
+function initCharts() {
+    const ctx1 = document.getElementById('qualityChart').getContext('2d');
+    const ctx2 = document.getElementById('driftChart').getContext('2d');
+    qualityChart = new Chart(ctx1, {
+        type: 'line', data: { labels: [], datasets: [
+            { label: 'Accuracy', borderColor: '#e94560', tension: 0.1, fill: false },
+            { label: 'Precision', borderColor: '#3498db', tension: 0.1, fill: false },
+            { label: 'Recall', borderColor: '#2ecc71', tension: 0.1, fill: false },
+            { label: 'F1', borderColor: '#f39c12', tension: 0.1, fill: false }
+        ]}, options: { responsive: true, maintainAspectRatio: true }
+    });
+    driftChart = new Chart(ctx2, {
+        type: 'line', data: { labels: [], datasets: [
+            { label: 'Data Drift', borderColor: '#e94560', tension: 0.1, fill: false },
+            { label: 'Concept Drift', borderColor: '#3498db', tension: 0.1, fill: false },
+            { label: 'Target Drift', borderColor: '#2ecc71', tension: 0.1, fill: false }
+        ]}, options: { responsive: true, maintainAspectRatio: true }
+    });
+}
+function updateCharts(history) {
+    if(!history || !qualityChart || !driftChart) return;
+    qualityChart.data.labels = history.quality.map(h => h.date);
+    qualityChart.data.datasets[0].data = history.quality.map(h => h.accuracy);
+    qualityChart.data.datasets[1].data = history.quality.map(h => h.precision);
+    qualityChart.data.datasets[2].data = history.quality.map(h => h.recall);
+    qualityChart.data.datasets[3].data = history.quality.map(h => h.f1);
+    qualityChart.update();
+    driftChart.data.labels = history.drift.map(h => h.date);
+    driftChart.data.datasets[0].data = history.drift.map(h => h.data_drift);
+    driftChart.data.datasets[1].data = history.drift.map(h => h.concept_drift);
+    driftChart.data.datasets[2].data = history.drift.map(h => h.target_drift);
+    driftChart.update();
+}
+async function refreshData() {
+    const metrics = await fetchMetrics();
+    updateMetrics(metrics);
+    const predictions = await fetchPredictions();
+    updatePredictions(predictions);
+    const history = await fetchHistory();
+    updateCharts(history);
+}
+refreshData();
+setInterval(refreshData, 30000);
+initCharts();
+setTimeout(() => refreshData(), 100);
+</script>
+{% endblock %}

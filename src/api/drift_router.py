@@ -16,14 +16,23 @@ from drift_monitoring.prometheus_client import metrics
 router = APIRouter(prefix="/drift", tags=["drift"])
 
 drift_detector = None
-REFERENCE_SIZE = 500
+REFERENCE_SIZE = 11
+
+_model = None
+
+def set_model(model):
+    global _model
+    _model = model
+
+def get_model():
+    return _model
 
 def init_drift_detector():
     global drift_detector
     session = Session()
     try:
         reference = session.query(ReferenceData).order_by(func.random()).limit(REFERENCE_SIZE).all()
-        if len(reference) > 100:
+        if len(reference) > 10:
             texts = [r.text for r in reference]
             labels = [r.label for r in reference]
             drift_detector = DriftDetector(
@@ -64,18 +73,56 @@ async def check_drift(background_tasks: BackgroundTasks):
         current_texts = [p.text for p in current]
         current_labels = [1 if p.label == "toxic" else 0 for p in current]
 
+        model = get_model()
+        y_pred_ref = None
+        y_pred_cur = None
+
+        if model is not None:
+            ref_texts = detector.reference_texts
+            if ref_texts:
+                if not hasattr(detector, '_ref_preds'):
+                    results = model.predict(ref_texts)
+                    if not isinstance(results, list):
+                        results = [results]
+                    detector._ref_preds = [1 if r['label'] == 'toxic' else 0 for r in results]
+                y_pred_ref = detector._ref_preds
+
+            results_cur = model.predict(current_texts)
+            if not isinstance(results_cur, list):
+                results_cur = [results_cur]
+            y_pred_cur = [1 if r['label'] == 'toxic' else 0 for r in results_cur]
+
         report = detector.generate_report(
             current_texts=current_texts,
             y_reference=detector.reference_labels,
             y_current=current_labels,
+            y_true_reference=detector.reference_labels,
+            y_pred_reference=y_pred_ref,
+            y_true_current=current_labels,
+            y_pred_current=y_pred_cur,
             log_to_mlflow=True
         )
 
         drift_log = DriftLog(
-            drift_score=report.data_drift.score if report.data_drift else 0,
+            drift_score=report.data_drift.score if report.data_drift else 0.0,
             drift_detected=report.has_drift(),
-            details=str(report.to_dict())
+            details=json.dumps(report.to_dict())
         )
+        session.add(drift_log)
+        session.commit()
+
+        metrics.update_drift_metrics(report.to_dict())
+
+        try:
+            base_dir = Path(__file__).parent.parent.parent
+            reports_dir = base_dir / "reports"
+            reports_dir.mkdir(exist_ok=True)
+            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filepath = reports_dir / f"drift_report_{timestamp_str}.json"
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(report.to_dict(), f, indent=2, ensure_ascii=False, default=str)
+        except Exception as e:
+            print(f"Failed to save report: {e}")
         session.add(drift_log)
         session.commit()
 

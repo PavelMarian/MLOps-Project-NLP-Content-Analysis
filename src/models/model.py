@@ -415,12 +415,12 @@ def init_mlflow(tracking_uri: str = None, experiment_name: str = "toxicity_model
     print(f"MLflow initialized with tracking URI: {mlflow.get_tracking_uri()}")
 
 
-def create_model_with_mlflow(use_mlflow=True, experiment_name="toxicity_model"):
+def create_model_with_mlflow(use_mlflow=True, experiment_name="toxicity_model",  model_path="s-nlp/russian_toxicity_classifier"):
     if use_mlflow:
         init_mlflow(experiment_name=experiment_name)
 
     return ToxicityModel(
-        model_path="s-nlp/russian_toxicity_classifier",
+        model_path=model_path,
         threshold=0.5,
         use_mlflow=use_mlflow,
         experiment_name=experiment_name
