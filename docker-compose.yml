@@ -1,18 +1,20 @@
-version: '3.8'
-
 services:
   api:
     build: .
     container_name: toxicity-api
     ports:
       - "8000:8000"
+    environment:
+      - PYTHONPATH=/app:/app/src:/app/src/api
+      - MLFLOW_TRACKING_URI=mlruns
+      - MLFLOW_ALLOW_FILE_STORE=true
+      - PYTHONUNBUFFERED=1
+      - HF_HUB_DOWNLOAD_TIMEOUT=300
+      - HF_HUB_ETAG_TIMEOUT=60
     volumes:
       - ./toxicity.db:/app/toxicity.db
       - ./mlruns:/app/mlruns
       - ./data:/app/data
-    environment:
-      - MLFLOW_TRACKING_URI=mlruns
-      - PYTHONUNBUFFERED=1
     restart: unless-stopped
     networks:
       - monitoring
@@ -23,7 +25,7 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./src/drift_monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -39,7 +41,8 @@ services:
       - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./grafana-dashboard.yml:/etc/grafana/provisioning/dashboards/dashboard.yml
+      - ./src/drift_monitoring/grafana/grafana-dashboard.json:/etc/grafana/provisioning/dashboards/toxicity-dashboard.json
+      - ./src/drift_monitoring/grafana/grafana-datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_SECURITY_ADMIN_USER=admin
@@ -54,6 +57,8 @@ services:
       - "5000:5000"
     volumes:
       - ./mlruns:/mlruns
+    environment:
+      - MLFLOW_ALLOW_FILE_STORE=true
     command: mlflow ui --backend-store-uri /mlruns --host 0.0.0.0 --port 5000
     restart: unless-stopped
     networks:

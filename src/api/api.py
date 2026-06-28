@@ -38,6 +38,10 @@ app = FastAPI(
 app.include_router(drift_router)
 app.include_router(new_data_loader)
 
+app_start_time = datetime.now()
+request_timestamps = deque(maxlen=1000)
+request_latencies = deque(maxlen=1000)
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
@@ -218,6 +222,9 @@ async def predict(request: PredictRequest, background_tasks: BackgroundTasks):
             session.close()
 
         latency = (time.time() - start_time) * 1000
+
+        request_timestamps.append(time.time())
+        request_latencies.append(latency)
 
         background_tasks.add_task(check_drift)
 
@@ -555,6 +562,18 @@ async def api_metrics():
         finally:
             session.close()
 
+        avg_latency_ms = 0.0
+        if len(request_latencies) > 0:
+            avg_latency_ms = sum(request_latencies) / len(request_latencies)
+
+        uptime_seconds = (datetime.now() - app_start_time).total_seconds()
+        uptime_hours = uptime_seconds / 3600
+
+        now = time.time()
+        one_minute_ago = now - 60
+        recent_requests = [ts for ts in request_timestamps if ts >= one_minute_ago]
+        rps = len(recent_requests) / 60.0
+
         data_drift = 0.0
         concept_drift = 0.0
         target_drift = 0.0
@@ -573,9 +592,9 @@ async def api_metrics():
         return {
             "system": {
                 "total_processed": stats.total_predictions,
-                "avg_latency_ms": 0,
-                "uptime_hours": 0,
-                "rps": 0
+                "avg_latency_ms": round(avg_latency_ms, 4),
+                "uptime_hours": round(uptime_hours, 4),
+                "rps": round(rps, 4)
             },
             "quality": {
                 "accuracy": active_model.accuracy if active_model else 0.0,

@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-config
+data:
+  MODEL_PATH: "s-nlp/russian_toxicity_classifier"
+  DEFAULT_THRESHOLD: "0.5"
+  USE_MLFLOW: "True"
+  EXPERIMENT_NAME: "toxicity_model"
+  MLFLOW_TRACKING_URI: "http://mlflow-service:5000"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+    scrape_configs:
+      - job_name: 'toxicity-app'
+        static_configs:
+          - targets: ['api-service:8000']
+        metrics_path: '/metrics'
+        scrape_interval: 10s
