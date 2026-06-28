@@ -1,5 +1,7 @@
-from fastapi import FastAPI, BackgroundTasks, HTTPException, BackgroundTasks
-from fastapi.responses import Response
+from fastapi import FastAPI, BackgroundTasks, HTTPException, BackgroundTasks, Request
+from fastapi.responses import Response, HTMLResponse
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
@@ -8,7 +10,10 @@ import logging
 import time
 import sys
 from pathlib import Path
-from db import Session, Prediction, ModelVersion, DriftLog
+import json
+import httpx
+
+from db import Session, Prediction, ModelVersion, DriftLog, ReferenceData
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -18,7 +23,7 @@ from drift_router import set_model
 
 from drift_monitoring.drift_detector import DriftDetector
 from drift_monitoring.prometheus_client import get_metrics
-from drift_router import router as drift_router
+from drift_router import router as drift_router, get_drift_status, get_model, set_model
 from load_new_data import router as new_data_loader
 
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +37,13 @@ app = FastAPI(
 
 app.include_router(drift_router)
 app.include_router(new_data_loader)
+
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+TEMPLATES_DIR = BASE_DIR / "templates"
+STATIC_DIR = BASE_DIR / "static"
+
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 model = None
 drift_detector = None
@@ -255,95 +267,8 @@ async def metrics_endpoint():
     return Response(content=get_metrics(), media_type="text/plain")
 
 
-@app.post("/retrain", response_model=RetrainResponse)
-async def retrain(request: RetrainRequest, background_tasks: BackgroundTasks):
-    session = Session()
-    try:
-        start_date = datetime.now() - timedelta(days=request.days_back)
-        feedback_data = session.query(Prediction).filter(
-            Prediction.feedback.isnot(None),
-            Prediction.timestamp >= start_date
-        ).all()
 
-        if len(feedback_data) < 50:
-            return RetrainResponse(
-                success=False,
-                message=f"Need at least 50 feedback samples, got {len(feedback_data)}"
-            )
-
-        training_data = []
-        for p in feedback_data:
-            is_actually_toxic = (p.label == "toxic")
-            if not p.feedback:
-                is_actually_toxic = not is_actually_toxic
-
-            training_data.append({
-                "text": p.text,
-                "correct_label": 1 if is_actually_toxic else 0
-            })
-
-        def train():
-            result = retrain_model(
-                training_data,
-                request.epochs,
-                request.batch_size,
-                request.learning_rate,
-                request.output_dir
-            )
-
-            if result and result.get("success"):
-                session2 = Session()
-                try:
-                    session2.query(ModelVersion).update({ModelVersion.is_active: False})
-
-                    new_version = ModelVersion(
-                        version=f"v{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-                        path=result.get("model_path", request.output_dir),
-                        f1_score=result.get("eval_f1"),
-                        accuracy=result.get("eval_accuracy"),
-                        precision=result.get("eval_precision"),
-                        recall=result.get("eval_recall"),
-                        is_active=True
-                    )
-                    session2.add(new_version)
-                    session2.commit()
-
-                    logger.info(f"Model retrained! F1: {result.get('eval_f1', 0):.3f}")
-
-                    global model
-                    if model:
-                        try:
-                            model.end_mlflow_run()
-                        except:
-                            pass
-
-                    model = create_model_with_mlflow(
-                        use_mlflow=USE_MLFLOW,
-                        experiment_name=EXPERIMENT_NAME
-                    )
-                    logger.info("Model reloaded after retraining")
-
-                except Exception as e:
-                    session2.rollback()
-                    logger.error(f"Error saving model metadata: {e}")
-                finally:
-                    session2.close()
-
-        background_tasks.add_task(train)
-
-        return RetrainResponse(
-            success=True,
-            message=f"Retraining started with {len(training_data)} samples"
-        )
-
-    except Exception as e:
-        logger.error(f"Retrain error: {e}")
-        return RetrainResponse(success=False, message=str(e))
-    finally:
-        session.close()
-
-
-def retrain_model(training_data: List[Dict], epochs: int = 3, batch_size: int = 16,
+def retrain_model(training_data: List[Dict], epochs: int = 1, batch_size: int = 4,
                   learning_rate: float = 2e-5, output_dir: str = "models/finetuned") -> Dict:
     global model
 
@@ -365,44 +290,16 @@ def retrain_model(training_data: List[Dict], epochs: int = 3, batch_size: int = 
 
 
 def check_drift():
-    global drift_detector
-
-    session = Session()
     try:
-        recent = session.query(Prediction).filter(
-            Prediction.timestamp >= datetime.now() - timedelta(days=1)
-        ).all()
-
-        if len(recent) < 50:
-            return
-
-        current_texts = [p.text for p in recent]
-
-        if drift_detector is None:
-            init_drift_detector()
-
-        if drift_detector:
-            result = drift_detector.detect(current_texts)
-
-            log = DriftLog(
-                drift_score=result["drift_score"],
-                drift_detected=result["drift_detected"],
-                details=str(result)
-            )
-            session.add(log)
-            session.commit()
-
-            if result["drift_detected"]:
-                logger.warning(f"Data drift detected! Score: {result['drift_score']:.3f}")
-
-            return result
-        return None
-
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post("http://localhost:8000/drift/check")
+            if response.status_code == 200:
+                data = response.json()
+                logger.info(f"Drift check completed. Status: {data.get('status')}, Has drift: {data.get('has_drift')}")
+            else:
+                logger.warning(f"Drift check failed with status {response.status_code}: {response.text}")
     except Exception as e:
-        logger.error(f"Drift check error: {e}")
-        return None
-    finally:
-        session.close()
+        logger.error(f"Error during drift check: {e}")
 
 
 @app.get("/stats", response_model=StatsResponse)
@@ -612,6 +509,272 @@ async def get_model_versions(limit: int = 20):
         }
     finally:
         session.close()
+
+@app.get("/", response_class=HTMLResponse)
+async def dashboard(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard.html",
+        context={
+            "active_page": "dashboard"
+        },
+    )
+
+
+@app.get("/inference", response_class=HTMLResponse)
+async def inference_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="inference.html",
+        context={
+            "active_page": "inference"
+        },
+    )
+
+
+@app.get("/experiments", response_class=HTMLResponse)
+async def experiments_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="experiments.html",
+        context={
+            "active_page": "experiments"
+        },
+    )
+
+@app.get("/api/metrics")
+async def api_metrics():
+    try:
+        stats = await get_stats()
+        drift_status_data = await get_drift_status() if drift_detector else {"status": "not_initialized"}
+
+        session = Session()
+        try:
+            active_model = session.query(ModelVersion).filter(ModelVersion.is_active == True).first()
+            last_drift = session.query(DriftLog).order_by(DriftLog.timestamp.desc()).first()
+        finally:
+            session.close()
+
+        data_drift = 0.0
+        concept_drift = 0.0
+        target_drift = 0.0
+        if last_drift:
+            try:
+                details = json.loads(last_drift.details)
+                if "data_drift" in details:
+                    data_drift = details["data_drift"].get("score", 0.0)
+                if "concept_drift" in details and details["concept_drift"]:
+                    concept_drift = details["concept_drift"].get("score", 0.0)
+                if "target_drift" in details and details["target_drift"]:
+                    target_drift = details["target_drift"].get("score", 0.0)
+            except Exception:
+                pass
+
+        return {
+            "system": {
+                "total_processed": stats.total_predictions,
+                "avg_latency_ms": 0,
+                "uptime_hours": 0,
+                "rps": 0
+            },
+            "quality": {
+                "accuracy": active_model.accuracy if active_model else 0.0,
+                "precision": active_model.precision if active_model else 0.0,
+                "recall": active_model.recall if active_model else 0.0,
+                "f1": active_model.f1_score if active_model else 0.0
+            },
+            "drift": {
+                "data_drift": data_drift,
+                "concept_drift": concept_drift,
+                "target_drift": target_drift
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error in /api/metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/predictions/latest")
+async def api_predictions_latest(limit: int = 10):
+    session = Session()
+    try:
+        records = session.query(Prediction).order_by(Prediction.timestamp.desc()).limit(limit).all()
+        return [
+            {
+                "id": p.id,
+                "text": p.text,
+                "is_toxic": p.label == "toxic",
+                "confidence": p.confidence or 0.0,
+                "timestamp": p.timestamp.isoformat()
+            }
+            for p in records
+        ]
+    finally:
+        session.close()
+
+
+@app.get("/api/history")
+async def api_history():
+    session = Session()
+    try:
+        versions = session.query(ModelVersion).order_by(ModelVersion.created_at.asc()).all()
+        quality_history = [
+            {
+                "date": v.created_at.isoformat(),
+                "accuracy": v.accuracy or 0.0,
+                "precision": v.precision or 0.0,
+                "recall": v.recall or 0.0,
+                "f1": v.f1_score or 0.0
+            }
+            for v in versions
+        ]
+
+        drift_logs = session.query(DriftLog).order_by(DriftLog.timestamp.asc()).all()
+        drift_history = []
+        for log in drift_logs:
+            try:
+                details = json.loads(log.details) if log.details else {}
+                drift_history.append({
+                    "date": log.timestamp.isoformat(),
+                    "data_drift": details.get("data_drift", {}).get("score", 0.0),
+                    "concept_drift": details.get("concept_drift", {}).get("score", 0.0),
+                    "target_drift": details.get("target_drift", {}).get("score", 0.0)
+                })
+            except:
+                pass
+
+        return {
+            "quality": quality_history,
+            "drift": drift_history
+        }
+    finally:
+        session.close()
+
+
+@app.get("/api/experiments")
+async def api_experiments():
+    session = Session()
+    try:
+        versions = session.query(ModelVersion).order_by(ModelVersion.created_at.desc()).all()
+        return {
+            "experiments": [
+                {
+                    "version": v.version,
+                    "timestamp": v.created_at.isoformat(),
+                    "metrics": {
+                        "accuracy": v.accuracy or 0.0,
+                        "f1": v.f1_score or 0.0,
+                        "precision": v.precision or 0.0,
+                        "recall": v.recall or 0.0
+                    },
+                    "status": "active" if v.is_active else "archived"
+                }
+                for v in versions
+            ],
+            "latest_version": versions[0].version if versions else None
+        }
+    finally:
+        session.close()
+
+@app.post("/api/retrain")
+async def api_retrain(
+    background_tasks: BackgroundTasks,
+    epochs: int = 1,
+    batch_size: int = 4,
+    learning_rate: float = 0.01,
+    output_dir: str = "models/finetuned",
+    days_back: int = 30
+):
+    session = Session()
+    try:
+        start_date = datetime.now() - timedelta(days=days_back)
+        feedback_data = session.query(Prediction).filter(
+            Prediction.feedback.isnot(None),
+            Prediction.timestamp >= start_date
+        ).all()
+
+        if len(feedback_data) < 10:
+            return {
+                "success": False,
+                "message": f"Need at least 50 feedback samples, got {len(feedback_data)}. "
+                           f"Please collect more feedback before retraining."
+            }
+
+        training_data = []
+        for p in feedback_data:
+            is_actually_toxic = (p.label == "toxic")
+            if not p.feedback:
+                is_actually_toxic = not is_actually_toxic
+            training_data.append({
+                "text": p.text,
+                "correct_label": 1 if is_actually_toxic else 0
+            })
+    finally:
+        session.close()
+
+    def train():
+        try:
+            logger.info(f"Starting retraining with {len(training_data)} samples, "
+                        f"epochs={epochs}, batch_size={batch_size}, lr={learning_rate}")
+
+            result = retrain_model(
+                training_data,
+                epochs=epochs,
+                batch_size=batch_size,
+                learning_rate=learning_rate,
+                output_dir=output_dir
+            )
+
+            if result is not None:
+                logger.info(f"Retraining completed. Metrics: {result}")
+
+                session2 = Session()
+                try:
+                    session2.query(ModelVersion).update({ModelVersion.is_active: False})
+                    session2.commit()
+
+                    new_version = ModelVersion(
+                        version=f"v{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                        path=output_dir,
+                        f1_score=result.get("eval_f1"),
+                        accuracy=result.get("eval_accuracy"),
+                        precision=result.get("eval_precision"),
+                        recall=result.get("eval_recall"),
+                        is_active=True
+                    )
+                    session2.add(new_version)
+                    session2.commit()
+                    logger.info(f"Saved model version: {new_version.version}")
+                except Exception as e:
+                    session2.rollback()
+                    logger.error(f"Failed to save model version: {e}")
+                finally:
+                    session2.close()
+
+                global model
+                if model:
+                    model.end_mlflow_run()
+
+                model = create_model_with_mlflow(
+                    use_mlflow=USE_MLFLOW,
+                    experiment_name=EXPERIMENT_NAME,
+                    model_path=output_dir
+                )
+                set_model(model)
+                logger.info(f"Model reloaded from {output_dir}")
+                logger.info(f"New F1: {result.get('eval_f1', 'N/A')}")
+            else:
+                logger.error(f"Retraining failed: {result}")
+        except Exception as e:
+            logger.error(f"Retraining error: {e}", exc_info=True)
+
+    background_tasks.add_task(train)
+
+    return {
+        "success": True,
+        "message": f"Retraining started with {len(training_data)} samples. "
+                   f"Check server logs for progress."
+    }
 
 
 if __name__ == "__main__":

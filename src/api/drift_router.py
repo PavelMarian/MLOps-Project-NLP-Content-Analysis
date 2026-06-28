@@ -106,7 +106,7 @@ async def check_drift(background_tasks: BackgroundTasks):
         drift_log = DriftLog(
             drift_score=report.data_drift.score if report.data_drift else 0.0,
             drift_detected=report.has_drift(),
-            details=str(report.to_dict())
+            details=json.dumps(report.to_dict())
         )
         session.add(drift_log)
         session.commit()

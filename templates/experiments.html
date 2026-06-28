@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block title %}Эксперименты — MLOps Content Moderation{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>📈 Эксперименты MLflow</h2>
+    <button class="btn btn-primary" onclick="refreshExperiments()" style="margin-bottom:1rem">🔄 Обновить</button>
+    <div id="experiments-list"><p>Загрузка...</p></div>
+</div>
+<div class="card">
+    <h2>🏆 Лучшие модели</h2>
+    <div class="metrics-grid"><div class="metric-card"><div class="metric-value" id="best-accuracy">-</div><div class="metric-label">Лучшая Accuracy</div></div><div class="metric-card"><div class="metric-value" id="best-f1">-</div><div class="metric-label">Лучший F1</div></div><div class="metric-card"><div class="metric-value" id="best-version">-</div><div class="metric-label">Лучшая версия</div></div></div>
+</div>
+<script>
+async function fetchExperiments() {
+    try { const r = await fetch('/api/experiments'); return await r.json(); }
+    catch(e) { return null; }
+}
+async function refreshExperiments() {
+    const container = document.getElementById('experiments-list');
+    container.innerHTML = '<p>⏳ Загрузка...</p>';
+    const data = await fetchExperiments();
+    if(!data || !data.experiments || data.experiments.length===0) { container.innerHTML = '<p>📭 Нет экспериментов</p>'; return; }
+    let bestAcc=0, bestF1=0;
+    for(const e of data.experiments) { if(e.metrics.accuracy>bestAcc) bestAcc=e.metrics.accuracy; if(e.metrics.f1>bestF1) bestF1=e.metrics.f1; }
+    document.getElementById('best-accuracy').textContent = formatPercent(bestAcc);
+    document.getElementById('best-f1').textContent = formatPercent(bestF1);
+    document.getElementById('best-version').textContent = data.latest_version || '—';
+    container.innerHTML = `<table><thead><tr><th>Версия</th><th>Дата</th><th>Accuracy</th><th>F1</th><th>Статус</th></tr></thead><tbody>${data.experiments.map(e => `<tr><td><strong>${e.version}</strong></td><td>${new Date(e.timestamp).toLocaleString()}</td><td>${formatPercent(e.metrics.accuracy)}</td><td>${formatPercent(e.metrics.f1)}</td><td><span class="badge badge-safe">${e.status}</span></td></tr>`).join('')}</tbody></table><button class="btn btn-secondary" style="margin-top:1rem" onclick="showNotification('MLflow UI будет доступен позже','info')">📊 Открыть MLflow UI</button>`;
+}
+refreshExperiments();
+</script>
+{% endblock %}
