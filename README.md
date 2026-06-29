@@ -1,57 +1,54 @@
-MLOPS-Project-toxicity
-==============================
+# Toxicity Detection MLOps Platform
 
-A short description of the project.
+Платформа для детекции токсичности текстов с полным циклом MLOps: инференс, сбор обратной связи, мониторинг дрейфа (data drift, target drift, concept drift), переобучение и расчет метрик.
 
-Project Organization
-------------
+---
 
-    ├── LICENSE
-    ├── Makefile           <- Makefile with commands like `make data` or `make train`
-    ├── README.md          <- The top-level README for developers using this project.
-    ├── data
-    │   ├── external       <- Data from third party sources.
-    │   ├── interim        <- Intermediate data that has been transformed.
-    │   ├── processed      <- The final, canonical data sets for modeling.
-    │   └── raw            <- The original, immutable data dump.
-    │
-    ├── docs               <- A default Sphinx project; see sphinx-doc.org for details
-    │
-    ├── models             <- Trained and serialized models, model predictions, or model summaries
-    │
-    ├── notebooks          <- Jupyter notebooks. Naming convention is a number (for ordering),
-    │                         the creator's initials, and a short `-` delimited description, e.g.
-    │                         `1.0-jqp-initial-data-exploration`.
-    │
-    ├── references         <- Data dictionaries, manuals, and all other explanatory materials.
-    │
-    ├── reports            <- Generated analysis as HTML, PDF, LaTeX, etc.
-    │   └── figures        <- Generated graphics and figures to be used in reporting
-    │
-    ├── requirements.txt   <- The requirements file for reproducing the analysis environment, e.g.
-    │                         generated with `pip freeze > requirements.txt`
-    │
-    ├── setup.py           <- makes project pip installable (pip install -e .) so src can be imported
-    ├── src                <- Source code for use in this project.
-    │   ├── __init__.py    <- Makes src a Python module
-    │   │
-    │   ├── data           <- Scripts to download or generate data
-    │   │   └── make_dataset.py
-    │   │
-    │   ├── features       <- Scripts to turn raw data into features for modeling
-    │   │   └── build_features.py
-    │   │
-    │   ├── models         <- Scripts to train models and then use trained models to make
-    │   │   │                 predictions
-    │   │   ├── predict_model.py
-    │   │   └── train_model.py
-    │   │
-    │   └── visualization  <- Scripts to create exploratory and results oriented visualizations
-    │       └── visualize.py
-    │
-    └── tox.ini            <- tox file with settings for running tox; see tox.readthedocs.io
+## Основные возможности
 
+- Система мониторинга дрейфа (Data / Target / Concept Drift) с использованием Prometheus и Grafana.
+- Ручное переобучение модели на основе накопленных пользовательских фидбеков.
+- Встроенный веб-интерфейс для визуализации статуса системы, графиков и логов.
+- Трекинг в MLFlow
 
---------
+---
 
-<p><small>Project based on the <a target="_blank" href="https://drivendata.github.io/cookiecutter-data-science/">cookiecutter data science project template</a>. #cookiecutterdatascience</small></p>
+## Основные модули
+
+| Компонент | Описание |
+| :--- | :--- |
+| **`api.py`** | Основной файл FastAPI. Содержит эндпоинты для предсказаний, обратной связи, статистики, управления моделью и отрисовки веб-страниц. |
+| **`db.py`** | Инициализация SQLite базы данных. |
+| **`drift_router.py`** | Роутер для мониторинга дрейфа. Содержит логику инициализации детектора, запуска проверок и получения истории. |
+| **`load_new_data.py`** | Роутер для загрузки входных размеченных данных в формате csv. |
+| **`load_ref_data.py`** | Скрипт для загрузки референсного датасета в формате csv. |
+| **`drift_detector.py`** | Реализует классы для обнаружения дрейфа данных (Data Drift), целевого дрейфа (Target Drift) и концептуального дрейфа (Concept Drift). |
+| **`prometheus_client.py`** | Сбор метрик для Prometheus. |
+
+---
+
+## Модель и данные
+
+В проекте используется предобученная модель для классификации токсичности `s-nlp/russian_toxicity_classifier` (https://huggingface.co/s-nlp/russian_toxicity_classifier). Исходная модель была обучена на двух датасетах: Russian Language Toxic Comments (https://www.kaggle.com/blackmoon/russian-language-toxic-comments/metadata) и Toxic Russian Comments (https://www.kaggle.com/alexandersemiletov/toxic-russian-comments)
+
+---
+
+## Запуск
+
+Клонируйте репозиторий
+```
+git clone https://github.com/PavelMarian/MLOps-Project-NLP-Content-Analysis
+```
+
+Первый вариант: сборка docker-образа
+```
+docker-compose up -d --build
+```
+
+Второй вариант: ручной запуск
+```
+pip install -r requirements.txt
+python api.py
+```
+
+Приложение будет доступно по адресу `http://localhost:8000`.
