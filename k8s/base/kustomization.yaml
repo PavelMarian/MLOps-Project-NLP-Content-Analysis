@@ -14,4 +14,4 @@ resources:
 images:
   - name: toxicity-api
     newName: docker.io/yourusername/toxicity-api
-    newTag: latest
+    newTag: 06f2fcf
