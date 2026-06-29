@@ -58,11 +58,6 @@ jobs:
           
           sed -i "s|newTag: .*|newTag: $SHORT_SHA|" k8s/base/kustomization.yaml
           
-          sed -i "s|newTag: .*|newTag: $SHORT_SHA|" k8s/overlays/dev/kustomization.yaml
-          
-          if [ -f k8s/overlays/prod/kustomization.yaml ]; then
-            sed -i "s|newTag: .*|newTag: $SHORT_SHA|" k8s/overlays/prod/kustomization.yaml
-          fi
 
       - name: Commit updated manifests
         run: |
