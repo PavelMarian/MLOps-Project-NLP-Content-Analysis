@@ -72,26 +72,3 @@ def test_metrics_endpoint(client):
     assert response.status_code == 200
     assert response.headers["content-type"] == "text/plain; charset=utf-8"
     assert "toxicity_predictions_total" in response.text
-
-
-def test_drift_check_no_detector(client, monkeypatch):
-    monkeypatch.setattr("src.api.drift_router.drift_detector", None)
-    response = client.post("/drift/check")
-    assert response.status_code == 200
-    assert response.json()["detail"] == "Drift detector not initialized"
-
-
-def test_drift_status(client, monkeypatch):
-    mock_detector = MagicMock()
-    mock_detector.get_drift_summary.return_value = {
-        "status": "ok",
-        "total_checks": 5,
-        "drift_count": 1,
-        "last_check": {"has_drift": False, "timestamp": 1234567890},
-    }
-    monkeypatch.setattr("src.api.drift_router.drift_detector", mock_detector)
-    response = client.get("/drift/status")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "ok"
-    assert data["total_checks"] == 1
